@@ -13,7 +13,7 @@ SKETCHUP_CONSOLE.show rescue nil
 module SU_MCP
   class Server
     def initialize
-      @port = 9876
+      @port = 9877
       @server = nil
       @running = false
       @timer_id = nil
@@ -43,9 +43,14 @@ module SU_MCP
       return if @running
       
       begin
-        log "Starting server on localhost:#{@port}..."
-        
-        @server = TCPServer.new('127.0.0.1', @port)
+        # Bind to 0.0.0.0 so the devcontainer (which reaches the Windows
+        # host via host.docker.internal — an external interface from
+        # Windows's POV) can connect. 127.0.0.1 would only allow local
+        # processes on the Windows host itself.
+        bind_addr = '0.0.0.0'
+        log "Starting server on #{bind_addr}:#{@port}..."
+
+        @server = TCPServer.new(bind_addr, @port)
         log "Server created on port #{@port}"
         
         @running = true

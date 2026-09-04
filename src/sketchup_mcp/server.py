@@ -1,4 +1,5 @@
 from mcp.server.fastmcp import FastMCP, Context
+import os
 import socket
 import json
 import time
@@ -183,8 +184,14 @@ def get_sketchup_connection():
 
     No caching — each send_command() creates its own fresh TCP connection,
     matching the Ruby extension's one-shot-per-connection design.
+
+    Host/port are configurable via SKETCHUP_HOST and SKETCHUP_PORT env vars
+    so the bridge can run inside a devcontainer and reach a SketchUp Pro
+    instance on the Windows host (mirrors the blender-mcp pattern).
     """
-    return SketchupConnection(host="localhost", port=9876)
+    host = os.environ.get("SKETCHUP_HOST", "localhost")
+    port = int(os.environ.get("SKETCHUP_PORT", "9877"))
+    return SketchupConnection(host=host, port=port)
 
 @asynccontextmanager
 async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
@@ -514,14 +521,22 @@ def eval_ruby(
             request_id=ctx.request_id
         )
         
-        logger.info(f"eval_ruby result: {result}")
-        
-        # Format the response to include the result
-        response = {
-            "success": True,
-            "result": result.get("content", [{"text": "Success"}])[0].get("text", "Success") if isinstance(result.get("content"), list) and len(result.get("content", [])) > 0 else "Success"
-        }
-        
+        logger.info(f"eval_ruby raw result type={type(result).__name__} value={result}")
+
+        # Extract the actual return value. The vanilla bridge returned
+        # "Success" in too many cases — this version walks the response
+        # shape and falls back gracefully so eval results actually surface.
+        text = "Success"
+        if isinstance(result, dict):
+            content = result.get("content", [])
+            if isinstance(content, list) and len(content) > 0:
+                text = content[0].get("text", "Success")
+            elif "result" in result:
+                text = str(result["result"])
+        elif isinstance(result, str):
+            text = result
+
+        response = {"success": True, "result": text}
         return json.dumps(response)
     except Exception as e:
         logger.error(f"Error in eval_ruby: {str(e)}")
